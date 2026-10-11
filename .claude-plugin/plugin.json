@@ -1,0 +1,6 @@
+{
+  "name": "agent-visualizer",
+  "version": "0.1.0",
+  "description": "Live pane that maps your session's agents, sub-agents, MCP servers and tool calls as they happen.",
+  "types": "./types/index.d.ts"
+}

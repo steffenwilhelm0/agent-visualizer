@@ -1,0 +1,5 @@
+{
+  "name": "agent-visualizer",
+  "owner": { "name": "swi" },
+  "plugins": [{ "name": "agent-visualizer", "source": "./" }]
+}
