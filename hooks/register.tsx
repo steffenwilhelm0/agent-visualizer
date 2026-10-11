@@ -196,7 +196,7 @@ export const register: Register = on => {
       `up ${mins} min`,
     ]
     const room = Math.max(6, (e.viewport?.rows ?? 30) - 8)
-    const lines = log.slice(-Math.min(14, room)).reverse()
+    const lines = log.slice(-Math.min(14, room))
 
     let graph
     if (e.surface !== 'terminal') {
