@@ -16,7 +16,13 @@ test('pane shows MCP and tool call counts on the main agent', async ($, on) => {
       requestId: 'agent-visualizer',
     })
     const text = JSON.stringify(await ui.drawn())
-    expect(text).toContain('mcp:github×2')
-    expect(text).toContain('tool:Bash×1')
+    if (surface === 'terminal') {
+      expect(text).toContain('mcp:github×2')
+      expect(text).toContain('tool:Bash×1')
+    } else {
+      expect(text).toContain('<svg')
+      expect(text).toContain('github: 2 calls')
+      expect(text).toContain('Bash: 1 calls')
+    }
   }
 })
