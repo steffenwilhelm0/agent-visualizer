@@ -8,8 +8,11 @@ export type Agent = {
   startedAt: number
 }
 
+export type LogEntry = { t: number; agent: string; text: string; ms?: number; isError?: boolean }
+export type Stats = { calls: number; errors: number; startedAt: number }
+
 declare module 'claude-code' {
   interface PluginState {
-    'agent-visualizer': { agents: Agent[] }
+    'agent-visualizer': { agents: Agent[]; log: LogEntry[]; stats: Stats }
   }
 }

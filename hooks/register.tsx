@@ -1,10 +1,15 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import type { Agent } from '../types'
+import type { Agent, LogEntry, Stats } from '../types'
 
 const PANE = 'agent-visualizer'
 const agents = atom({ plugin: 'agent-visualizer', key: 'agents' } as const, [] as Agent[])
+const logRef = atom({ plugin: 'agent-visualizer', key: 'log' } as const, [] as LogEntry[])
+const statsRef = atom({ plugin: 'agent-visualizer', key: 'stats' } as const, { calls: 0, errors: 0, startedAt: 0 } as Stats)
+
+const clock = (t: number) => new Date(t).toTimeString().slice(0, 8)
+const labelOf = (list: Agent[], id: string) => list.find(a => a.id === id)?.label ?? id
 
 const blank = (id: string, label: string, parent?: string): Agent => ({
   id,
@@ -105,6 +110,7 @@ export const register: Register = on => {
       description: 'Show agents, sub-agents, MCP servers and tools live in a pane',
     })
     await update($, agents, list => (list.some(a => a.id === 'main') ? list : [blank('main', 'main agent')]))
+    await update($, statsRef, st => (st.startedAt ? st : { ...st, startedAt: Date.now() }))
     isOpened = true
     void $.ui.open({ id: PANE, title: 'Agent graph' })
 
@@ -133,7 +139,17 @@ export const register: Register = on => {
       })
     }
 
-    return next(e)
+    const began = Date.now()
+    const ran = await next(e)
+    if (key) {
+      const hasFailed = ran.deny === undefined && ran.isError === true
+      const who = labelOf(await read($, agents), id)
+      const entry: LogEntry = { t: Date.now(), agent: who, text: key, ms: Date.now() - began, isError: hasFailed }
+      await update($, logRef, list => [...list, entry].slice(-60))
+      await update($, statsRef, st => ({ ...st, calls: st.calls + 1, errors: st.errors + (hasFailed ? 1 : 0) }))
+    }
+
+    return ran
   })
 
   on('agent.spawn', async ($, e, next) => {
@@ -141,6 +157,8 @@ export const register: Register = on => {
     if (started.agentId) {
       const sub = blank(started.agentId, e.subagentType, e.parentAgentId ?? 'main')
       await update($, agents, list => [...list.filter(a => a.id !== sub.id), sub].slice(-100))
+      const parent = labelOf(await read($, agents), e.parentAgentId ?? 'main')
+      await update($, logRef, list => [...list, { t: Date.now(), agent: parent, text: `spawned ${sub.label}` }].slice(-60))
     }
 
     return started
@@ -150,56 +168,92 @@ export const register: Register = on => {
     const id = e.agentId
     if (id) {
       await update($, agents, list => list.map(a => (a.id === id ? { ...a, isDone: true } : a)))
+      const who = labelOf(await read($, agents), id)
+      await update($, logRef, list => [...list, { t: Date.now(), agent: who, text: 'finished' }].slice(-60))
     }
 
     return next(e)
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
     const list = await read($, agents)
+    const log = await read($, logRef)
+    const st = await read($, statsRef)
+
+    const activeCount = list.filter(a => !a.isDone).length
+    const servers = new Set(list.flatMap(a => Object.keys(a.targets).filter(k => k.startsWith('mcp:'))))
+    const mins = st.startedAt ? Math.max(0, Math.round((Date.now() - st.startedAt) / 60000)) : 0
+    const info = [
+      `${list.length} agents · ${activeCount} active`,
+      `${st.calls} calls · ${st.errors} errors`,
+      `${servers.size} MCP servers`,
+      `up ${mins} min`,
+    ]
+    const room = Math.max(6, (e.viewport?.rows ?? 30) - 8)
+    const lines = log.slice(-Math.min(14, room)).reverse()
+
+    let graph
     if (e.surface !== 'terminal') {
       const { Svg } = $.ui.resolve(e)
       const g = drawGraph(list)
-      return <Svg source={g.source} alt={`Agent graph: ${list.length} agents`} width={g.width} height={g.height} isInteractive />
-    }
-    const { Box, Text } = $.ui.resolve(e)
-    const rows: { depth: number; agent: Agent }[] = []
-    const walk = (parent: string | undefined, depth: number) => {
-      for (const agent of list.filter(a => (a.parent ?? undefined) === parent && a.id !== 'main')) {
-        rows.push({ depth, agent })
-        walk(agent.id, depth + 1)
+      graph = <Svg source={g.source} alt={`Agent graph: ${list.length} agents`} width={g.width} height={g.height} isInteractive />
+    } else {
+      const rows: { depth: number; agent: Agent }[] = []
+      const walk = (parent: string | undefined, depth: number) => {
+        for (const agent of list.filter(a => (a.parent ?? undefined) === parent && a.id !== 'main')) {
+          rows.push({ depth, agent })
+          walk(agent.id, depth + 1)
+        }
       }
+      const main = list.find(a => a.id === 'main')
+      if (main) rows.push({ depth: 0, agent: main })
+      walk('main', 1)
+      graph = (
+        <Box flexDirection="column">
+          {rows.length === 0 && <Text dimColor>No agents yet.</Text>}
+          {rows.slice(0, 8).map(({ depth, agent }) => {
+            const pad = '  '.repeat(depth)
+            const targets = Object.entries(agent.targets)
+              .sort((x, y) => y[1] - x[1])
+              .map(([k, n]) => `${k}×${n}`)
+              .join('  ')
+            return (
+              <Box flexDirection="column">
+                <Text dimColor={agent.isDone} bold>
+                  {pad}
+                  {agent.isDone ? '○' : '●'} {agent.label}
+                </Text>
+                {targets !== '' && (
+                  <Text dimColor>
+                    {pad}  {targets}
+                  </Text>
+                )}
+              </Box>
+            )
+          })}
+        </Box>
+      )
     }
-    const main = list.find(a => a.id === 'main')
-    if (main) rows.push({ depth: 0, agent: main })
-    walk('main', 1)
-
-    const room = Math.max(1, (e.viewport?.rows ?? 24) - 3)
-    const shown = rows.slice(0, room)
 
     return (
       <Box flexDirection="column">
-        {shown.length === 0 && <Text dimColor>No agents yet.</Text>}
-        {shown.map(({ depth, agent }) => {
-          const pad = '  '.repeat(depth)
-          const targets = Object.entries(agent.targets)
-            .sort((x, y) => y[1] - x[1])
-            .map(([k, n]) => `${k}×${n}`)
-            .join('  ')
-          return (
-            <Box flexDirection="column">
-              <Text dimColor={agent.isDone} bold>
-                {pad}
-                {agent.isDone ? '○' : '●'} {agent.label}
-              </Text>
-              {targets !== '' && (
-                <Text dimColor>
-                  {pad}  {targets}
-                </Text>
-              )}
-            </Box>
-          )
-        })}
+        {graph}
+        <Text bold> </Text>
+        <Text bold>System</Text>
+        {info.map(line => (
+          <Text dimColor>{line}</Text>
+        ))}
+        <Text bold> </Text>
+        <Text bold>Log</Text>
+        {lines.length === 0 && <Text dimColor>No activity yet.</Text>}
+        {lines.map(l => (
+          <Text color={l.isError ? 'red' : undefined} dimColor={!l.isError && l.ms === undefined}>
+            {clock(l.t)} {l.agent} → {l.text}
+            {l.ms === undefined ? '' : ` · ${l.ms}ms`}
+            {l.isError ? ' · failed' : ''}
+          </Text>
+        ))}
       </Box>
     )
   })
