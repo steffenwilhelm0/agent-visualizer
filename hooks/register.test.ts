@@ -1,6 +1,7 @@
 import { test, expect } from 'claude-code/testing'
 
 test('pane shows MCP and tool call counts on the main agent', async ($, on) => {
+  on('ui.open', () => ({ isPlaced: true }) as never)
   on('tool.call', () => ({ result: { text: 'ok' } }) as never)
   await $.tool.call({ tool: 'mcp__github__search_code' } as never)
   await $.tool.call({ tool: 'mcp__github__get_pr' } as never)

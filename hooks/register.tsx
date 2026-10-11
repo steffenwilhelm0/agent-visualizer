@@ -19,12 +19,15 @@ const targetOf = (tool: string) =>
   tool.startsWith('mcp__') ? `mcp:${tool.split('__')[1]}` : `tool:${tool}`
 
 export const register: Register = on => {
+  let isOpened = false
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'agent-graph',
       description: 'Show agents, sub-agents, MCP servers and tools live in a pane',
     })
     await update($, agents, list => (list.some(a => a.id === 'main') ? list : [blank('main', 'main agent')]))
+    isOpened = true
+    void $.ui.open({ id: PANE, title: 'Agent graph' })
 
     return next(e)
   })
@@ -36,6 +39,10 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
+    if (!isOpened) {
+      isOpened = true
+      void $.ui.open({ id: PANE, title: 'Agent graph' })
+    }
     const id = e.agentId ?? 'main'
     const key = e.tool === 'Agent' ? undefined : targetOf(e.tool)
     if (key) {
