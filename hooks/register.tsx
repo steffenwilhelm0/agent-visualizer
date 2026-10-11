@@ -142,11 +142,16 @@ export const register: Register = on => {
     const began = Date.now()
     const ran = await next(e)
     if (key) {
-      const hasFailed = ran.deny === undefined && ran.isError === true
-      const who = labelOf(await read($, agents), id)
-      const entry: LogEntry = { t: Date.now(), agent: who, text: key, ms: Date.now() - began, isError: hasFailed }
-      await update($, logRef, list => [...list, entry].slice(-60))
-      await update($, statsRef, st => ({ ...st, calls: st.calls + 1, errors: st.errors + (hasFailed ? 1 : 0) }))
+      try {
+        const hasFailed = ran.deny === undefined && ran.isError === true
+        const who = labelOf(await read($, agents), id)
+        const entry: LogEntry = { t: Date.now(), agent: who, text: key, ms: Date.now() - began, isError: hasFailed }
+        await update($, logRef, list => [...list, entry].slice(-60))
+        await update($, statsRef, one => ({ ...one, calls: one.calls + 1, errors: one.errors + (hasFailed ? 1 : 0) }))
+        $.ui.status(`agent-viz: ${(await read($, statsRef)).calls} calls`)
+      } catch {
+        // logging must never cost the tool call its result
+      }
     }
 
     return ran
