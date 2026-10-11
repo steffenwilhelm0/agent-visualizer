@@ -18,7 +18,7 @@ test('pane shows MCP and tool call counts on the main agent', async ($, on) => {
     const text = JSON.stringify(await ui.drawn())
     expect(text).toContain('System')
     expect(text).toContain('Log')
-    expect(text).toContain('→ mcp:github')
+    expect(text).toContain('\" → \",\"mcp:github')
     expect(text).toContain('3 calls')
     if (surface === 'terminal') {
       expect(text).toContain('mcp:github×2')
